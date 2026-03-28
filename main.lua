@@ -21,13 +21,11 @@ local function setup_shortcut()
     local shortcut_path = "/data/data/com.termux/files/usr/bin/lver"
     local f = io.open(shortcut_path, "r")
     
-    -- If the shortcut doesn't exist, create it silently
     if not f then
         local sf = io.open(shortcut_path, "w")
         if sf then
-            sf:write("#!/system/bin/sh\nlua /sdcard/Download/main.lua\n")
+            sf:write("#!/data/data/com.termux/files/usr/bin/sh\nlua /sdcard/Download/main.lua\n")
             sf:close()
-            -- Make it executable
             os.execute("chmod +x " .. shortcut_path)
         end
     else
@@ -50,12 +48,11 @@ local function get_pid()
     return pid
 end
 
--- Check if background service is actually alive (Hydra/Ghost Bug Fix)
+-- Check if background service is actually alive
 local function is_service_running()
     local pid = get_pid()
     if not pid then return false, "NONE" end
 
-    -- Ping the process to see if it still exists
     local handle = io.popen("su -c 'kill -0 " .. pid .. " 2>/dev/null && echo ALIVE || echo DEAD'")
     local result = handle:read("*a") or ""
     handle:close()
@@ -63,7 +60,6 @@ local function is_service_running()
     if result:match("ALIVE") then
         return true, pid
     else
-        -- Clean up dead ghost PID
         os.remove(PID_FILE)
         return false, "NONE"
     end
@@ -71,15 +67,16 @@ end
 
 -- Safely execute root commands and check status
 local function run_cmd(desc, cmd)
-    -- Formatting output to align perfectly
     local formatted_desc = string.format("  %-45s", desc)
     io.write(formatted_desc)
     
-    local handle = io.popen("su -c '" .. cmd .. " && echo _SUCCESS_ || echo _FAIL_' 2>/dev/null")
+    -- We use ; inside the string to separate multiple commands, 
+    -- but wrap the whole thing to check if the final execution completes.
+    local handle = io.popen("su -c '" .. cmd .. " ; echo _DONE_' 2>/dev/null")
     local result = handle:read("*a") or ""
     handle:close()
 
-    if result:match("_SUCCESS_") then
+    if result:match("_DONE_") then
         print(GREEN .. "[SUCCESS]" .. RESET)
     else
         print(RED .. "[FAIL]" .. RESET)
@@ -97,17 +94,13 @@ local function start_auto_protector()
         return
     end
 
-    -- Write background logic to a temp file to avoid string escaping bugs
     local bg_logic = [[
 #!/system/bin/sh
 trap "rm -f ]] .. PID_FILE .. [[; exit" TERM INT HUP
 while true; do
     su -c 'for p in /proc/[0-9]*; do
         if [ -f "$p/cmdline" ] && grep -q "com.roblox" "$p/cmdline" 2>/dev/null; then
-            # Sisyphus Fix: Unlock, write -1000, then permanently lock as Read-Only
-            chmod 666 "$p/oom_score_adj" 2>/dev/null
             echo -1000 > "$p/oom_score_adj" 2>/dev/null
-            chmod 444 "$p/oom_score_adj" 2>/dev/null
         fi
     done'
     sleep 120
@@ -123,10 +116,8 @@ done
         return
     end
 
-    -- Enable Wakelock
     os.execute("su -c 'termux-wake-lock 2>/dev/null'")
 
-    -- Spawn the daemon
     local handle = io.popen("su -c 'setsid sh " .. BG_SCRIPT_FILE .. " >/dev/null 2>&1 & echo $!'")
     local new_pid = handle:read("*l")
     handle:close()
@@ -143,10 +134,11 @@ local function run_optimization()
     print("\n" .. CYAN .. "Executing System Optimization..." .. RESET)
     print("------------------------------------------------------------------------")
     
-    run_cmd("[~] Closing heavy background apps...", "am force-stop com.google.android.youtube && am force-stop com.android.chrome && am force-stop com.google.android.apps.maps")
-    run_cmd("[~] Stopping unnecessary system services...", "stop logd && stop statsd && stop mdnsd")
-    run_cmd("[~] Turning off device animations...", "settings put global window_animation_scale 0 && settings put global transition_animation_scale 0 && settings put global animator_duration_scale 0")
-    run_cmd("[~] Muting sounds and notifications...", "settings put global heads_up_notifications_enabled 0 && settings put system haptic_feedback_enabled 0")
+    -- Replaced && with ; so all commands execute independently
+    run_cmd("[~] Closing heavy background apps...", "am force-stop com.google.android.youtube ; am force-stop com.android.chrome ; am force-stop com.google.android.apps.maps")
+    run_cmd("[~] Stopping unnecessary system services...", "stop logd ; stop statsd ; stop mdnsd")
+    run_cmd("[~] Turning off device animations...", "settings put global window_animation_scale 0 ; settings put global transition_animation_scale 0 ; settings put global animator_duration_scale 0")
+    run_cmd("[~] Muting sounds and notifications...", "settings put global heads_up_notifications_enabled 0 ; settings put system haptic_feedback_enabled 0")
     run_cmd("[~] Disabling Google Play Store...", "pm disable-user --user 0 com.android.vending")
     
     start_auto_protector()
