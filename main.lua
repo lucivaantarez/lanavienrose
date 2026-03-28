@@ -16,6 +16,25 @@ local RESET = "\27[0m"
 local PID_FILE = "/sdcard/.lver_bg_pid"
 local BG_SCRIPT_FILE = "/sdcard/.lver_bg.sh"
 
+-- Auto-create 'lver' shortcut in Termux
+local function setup_shortcut()
+    local shortcut_path = "/data/data/com.termux/files/usr/bin/lver"
+    local f = io.open(shortcut_path, "r")
+    
+    -- If the shortcut doesn't exist, create it silently
+    if not f then
+        local sf = io.open(shortcut_path, "w")
+        if sf then
+            sf:write("#!/system/bin/sh\nlua /sdcard/Download/main.lua\n")
+            sf:close()
+            -- Make it executable
+            os.execute("chmod +x " .. shortcut_path)
+        end
+    else
+        f:close()
+    end
+end
+
 -- Clear terminal
 local function clear_screen()
     os.execute("clear")
@@ -163,6 +182,8 @@ end
 -- ============================================
 -- MAIN MENU LOOP
 -- ============================================
+setup_shortcut()
+
 while true do
     clear_screen()
     
@@ -182,6 +203,7 @@ while true do
     print(CYAN .. "+----------------------------------------------------------------------+" .. RESET)
     print("")
     print(WHITE .. "Main Menu:" .. RESET)
+    print(CYAN .. "  (Type 'lver' anywhere in Termux to open this menu!)" .. RESET)
     print("")
     print("  " .. CYAN .. "[1]" .. RESET .. " - Optimize System & Start Auto-Protector")
     print("  " .. CYAN .. "[2]" .. RESET .. " - Stop Auto-Protector")
