@@ -21,7 +21,7 @@ local function println(str)
     io.write((str or "") .. "\r\n")
 end
 
--- Auto-create 'lver' shortcut in Termux (WITH AUTO-UPDATE)
+-- Auto-create 'lver' shortcut in Termux (WITH OFFLINE-BRICK PROTECTION)
 local function setup_shortcut()
     local shortcut_path = "/data/data/com.termux/files/usr/bin/lver"
     local f = io.open(shortcut_path, "r")
@@ -30,8 +30,8 @@ local function setup_shortcut()
         local sf = io.open(shortcut_path, "w")
         if sf then
             sf:write("#!/data/data/com.termux/files/usr/bin/sh\n")
-            -- Silently fetch the newest version from GitHub before executing
-            sf:write("curl -s -o /sdcard/Download/main.lua https://raw.githubusercontent.com/lucivaantarez/lanavienrose/main/main.lua\n")
+            -- Download to a temp file first. If it succeeds, replace the main file. If offline, keep old file.
+            sf:write("curl -s -f -o /sdcard/Download/main_tmp.lua https://raw.githubusercontent.com/lucivaantarez/lanavienrose/main/main.lua && mv /sdcard/Download/main_tmp.lua /sdcard/Download/main.lua\n")
             sf:write("lua /sdcard/Download/main.lua\n")
             sf:close()
             os.execute("chmod +x " .. shortcut_path)
@@ -41,9 +41,8 @@ local function setup_shortcut()
     end
 end
 
--- Clear terminal and fix broken tty states
+-- Clear terminal
 local function clear_screen()
-    os.execute("stty sane 2>/dev/null")
     os.execute("clear")
 end
 
@@ -78,7 +77,6 @@ end
 local function run_cmd(desc, cmd)
     io.write("  " .. desc .. " ")
     
-    -- Using </dev/null prevents the root process from stealing keyboard input
     local handle = io.popen("su -c '" .. cmd .. " ; echo _DONE_' </dev/null 2>/dev/null")
     local result = handle:read("*a") or ""
     handle:close()
@@ -131,9 +129,11 @@ done
         return
     end
 
-    os.execute("su -c 'termux-wake-lock 2>/dev/null'")
+    -- Run wake-lock as normal user, NOT root!
+    os.execute("termux-wake-lock 2>/dev/null")
 
-    local handle = io.popen("su -c 'setsid sh " .. BG_SCRIPT_FILE .. " </dev/null >/dev/null 2>&1 & echo $!'")
+    -- Use nohup for guaranteed Android 10 daemonization
+    local handle = io.popen("su -c 'nohup sh " .. BG_SCRIPT_FILE .. " </dev/null >/dev/null 2>&1 & echo $!'")
     local new_pid = handle:read("*l")
     handle:close()
 
@@ -160,7 +160,6 @@ local function run_optimization()
     println("--------------------------------------------------")
     println(CYAN .. "Optimization complete. Press Enter to return." .. RESET)
     
-    os.execute("stty sane 2>/dev/null")
     io.read()
 end
 
@@ -177,7 +176,6 @@ local function stop_auto_protector()
         println("  [~] Auto-Protector is already stopped. " .. GREEN .. "[OK]" .. RESET)
     end
     println("\nPress Enter to return to menu.")
-    os.execute("stty sane 2>/dev/null")
     io.read()
 end
 
@@ -185,7 +183,6 @@ local function clear_ram_now()
     println("\n" .. CYAN .. "Flushing System RAM..." .. RESET)
     run_cmd("[~] Dropping memory caches...", "echo 3 > /proc/sys/vm/drop_caches")
     println("\nPress Enter to return to menu.")
-    os.execute("stty sane 2>/dev/null")
     io.read()
 end
 
