@@ -16,12 +16,21 @@ local RESET = "\27[0m"
 local PID_FILE = "/sdcard/.lver_bg_pid"
 local BG_SCRIPT_FILE = "/sdcard/.lver_bg.sh"
 
+-- [NEW FIX] Take a snapshot of the perfect terminal state before doing anything
+local ORIGINAL_TTY = io.popen("stty -g 2>/dev/null"):read("*l")
+
+local function restore_tty()
+    if ORIGINAL_TTY and ORIGINAL_TTY ~= "" then
+        os.execute("stty " .. ORIGINAL_TTY .. " 2>/dev/null")
+    end
+end
+
 -- Custom print function to bypass terminal staircase bug
 local function println(str)
     io.write((str or "") .. "\r\n")
 end
 
--- Auto-create 'lver' shortcut in Termux (WITH OFFLINE-BRICK PROTECTION)
+-- Auto-create 'lver' shortcut in Termux
 local function setup_shortcut()
     local shortcut_path = "/data/data/com.termux/files/usr/bin/lver"
     local f = io.open(shortcut_path, "r")
@@ -30,7 +39,6 @@ local function setup_shortcut()
         local sf = io.open(shortcut_path, "w")
         if sf then
             sf:write("#!/data/data/com.termux/files/usr/bin/sh\n")
-            -- Download to a temp file first. If it succeeds, replace the main file. If offline, keep old file.
             sf:write("curl -s -f -o /sdcard/Download/main_tmp.lua https://raw.githubusercontent.com/lucivaantarez/lanavienrose/main/main.lua && mv /sdcard/Download/main_tmp.lua /sdcard/Download/main.lua\n")
             sf:write("lua /sdcard/Download/main.lua\n")
             sf:close()
@@ -61,7 +69,8 @@ local function is_service_running()
     local pid = get_pid()
     if not pid then return false, "NONE" end
 
-    local handle = io.popen("su -c 'kill -0 " .. pid .. " 2>/dev/null && echo ALIVE || echo DEAD'")
+    -- [FIX] Added </dev/null here to prevent su from hijacking the background TTY
+    local handle = io.popen("su -c 'kill -0 " .. pid .. " 2>/dev/null && echo ALIVE || echo DEAD' </dev/null")
     local result = handle:read("*a") or ""
     handle:close()
 
@@ -115,7 +124,7 @@ while true; do
         if [ -f "$p/cmdline" ] && grep -q "com.roblox" "$p/cmdline" 2>/dev/null; then
             echo -1000 > "$p/oom_score_adj" 2>/dev/null
         fi
-    done'
+    done' </dev/null
     sleep 120
 done
 ]]
@@ -129,10 +138,8 @@ done
         return
     end
 
-    -- Run wake-lock as normal user, NOT root!
     os.execute("termux-wake-lock 2>/dev/null")
 
-    -- Use nohup for guaranteed Android 10 daemonization
     local handle = io.popen("su -c 'nohup sh " .. BG_SCRIPT_FILE .. " </dev/null >/dev/null 2>&1 & echo $!'")
     local new_pid = handle:read("*l")
     handle:close()
@@ -160,6 +167,7 @@ local function run_optimization()
     println("--------------------------------------------------")
     println(CYAN .. "Optimization complete. Press Enter to return." .. RESET)
     
+    restore_tty() -- [NEW FIX] Restores keyboard functionality
     io.read()
 end
 
@@ -176,6 +184,8 @@ local function stop_auto_protector()
         println("  [~] Auto-Protector is already stopped. " .. GREEN .. "[OK]" .. RESET)
     end
     println("\nPress Enter to return to menu.")
+    
+    restore_tty() -- [NEW FIX] Restores keyboard functionality
     io.read()
 end
 
@@ -183,6 +193,8 @@ local function clear_ram_now()
     println("\n" .. CYAN .. "Flushing System RAM..." .. RESET)
     run_cmd("[~] Dropping memory caches...", "echo 3 > /proc/sys/vm/drop_caches")
     println("\nPress Enter to return to menu.")
+    
+    restore_tty() -- [NEW FIX] Restores keyboard functionality
     io.read()
 end
 
@@ -220,6 +232,7 @@ while true do
     println("")
     io.write("Choose an option: ")
     
+    restore_tty() -- [NEW FIX] Guarantees option selection works
     local choice = io.read()
     
     if choice == "1" then
@@ -230,6 +243,7 @@ while true do
         clear_ram_now()
     elseif choice == "0" then
         clear_screen()
+        restore_tty()
         os.exit()
     end
 end
