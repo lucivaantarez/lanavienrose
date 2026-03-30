@@ -6,7 +6,7 @@
 local os = require("os")
 local io = require("io")
 
--- Terminal Colors (WinterHub Default Aesthetic)
+-- Terminal Colors
 local CYAN = "\27[36m"
 local WHITE = "\27[37m"
 local GREEN = "\27[32m"
@@ -16,7 +16,12 @@ local RESET = "\27[0m"
 local PID_FILE = "/sdcard/.lver_bg_pid"
 local BG_SCRIPT_FILE = "/sdcard/.lver_bg.sh"
 
--- Auto-create 'lver' shortcut in Termux
+-- Custom print function to bypass terminal staircase bug
+local function println(str)
+    io.write((str or "") .. "\r\n")
+end
+
+-- Auto-create 'lver' shortcut in Termux (WITH AUTO-UPDATE)
 local function setup_shortcut()
     local shortcut_path = "/data/data/com.termux/files/usr/bin/lver"
     local f = io.open(shortcut_path, "r")
@@ -24,7 +29,10 @@ local function setup_shortcut()
     if not f then
         local sf = io.open(shortcut_path, "w")
         if sf then
-            sf:write("#!/data/data/com.termux/files/usr/bin/sh\nlua /sdcard/Download/main.lua\n")
+            sf:write("#!/data/data/com.termux/files/usr/bin/sh\n")
+            -- Silently fetch the newest version from GitHub before executing
+            sf:write("curl -s -o /sdcard/Download/main.lua https://raw.githubusercontent.com/lucivaantarez/lanavienrose/main/main.lua\n")
+            sf:write("lua /sdcard/Download/main.lua\n")
             sf:close()
             os.execute("chmod +x " .. shortcut_path)
         end
@@ -33,8 +41,9 @@ local function setup_shortcut()
     end
 end
 
--- Clear terminal
+-- Clear terminal and fix broken tty states
 local function clear_screen()
+    os.execute("stty sane 2>/dev/null")
     os.execute("clear")
 end
 
@@ -65,22 +74,28 @@ local function is_service_running()
     end
 end
 
--- Safely execute root commands and check status
+-- Safely execute root commands without wrapping UI
 local function run_cmd(desc, cmd)
-    local formatted_desc = string.format("  %-45s", desc)
-    io.write(formatted_desc)
+    io.write("  " .. desc .. " ")
     
-    -- We use ; inside the string to separate multiple commands, 
-    -- but wrap the whole thing to check if the final execution completes.
-    local handle = io.popen("su -c '" .. cmd .. " ; echo _DONE_' 2>/dev/null")
+    -- Using </dev/null prevents the root process from stealing keyboard input
+    local handle = io.popen("su -c '" .. cmd .. " ; echo _DONE_' </dev/null 2>/dev/null")
     local result = handle:read("*a") or ""
     handle:close()
 
     if result:match("_DONE_") then
-        print(GREEN .. "[SUCCESS]" .. RESET)
+        println(GREEN .. "[SUCCESS]" .. RESET)
     else
-        print(RED .. "[FAIL]" .. RESET)
+        println(RED .. "[FAIL]" .. RESET)
     end
+end
+
+-- Helper to draw the table perfectly every time (Max width: 50)
+local function draw_table_row(name, val, is_green)
+    local name_pad = name .. string.rep(" ", 16 - #name)
+    local color = is_green == nil and WHITE or (is_green and GREEN or RED)
+    local val_pad = string.rep(" ", 22 - #val)
+    println(CYAN .. "| " .. WHITE .. name_pad .. CYAN .. " | " .. color .. "[ " .. val .. " ]" .. val_pad .. CYAN .. "|" .. RESET)
 end
 
 -- ============================================
@@ -90,7 +105,7 @@ end
 local function start_auto_protector()
     local is_running, _ = is_service_running()
     if is_running then
-        print("  [~] Auto-protector is already running. Skipping duplicate spawn. " .. GREEN .. "[OK]" .. RESET)
+        println("  [~] Auto-protector already running.  " .. GREEN .. "[OK]" .. RESET)
         return
     end
 
@@ -112,62 +127,65 @@ done
         f:write(bg_logic)
         f:close()
     else
-        print("  [~] Starting background auto-protector...          " .. RED .. "[FAIL]" .. RESET)
+        println("  [~] Starting auto-protector...       " .. RED .. "[FAIL]" .. RESET)
         return
     end
 
     os.execute("su -c 'termux-wake-lock 2>/dev/null'")
 
-    local handle = io.popen("su -c 'setsid sh " .. BG_SCRIPT_FILE .. " >/dev/null 2>&1 & echo $!'")
+    local handle = io.popen("su -c 'setsid sh " .. BG_SCRIPT_FILE .. " </dev/null >/dev/null 2>&1 & echo $!'")
     local new_pid = handle:read("*l")
     handle:close()
 
     if new_pid and new_pid ~= "" then
         os.execute("echo " .. new_pid .. " > " .. PID_FILE)
-        print("  [~] Starting background auto-protector...          " .. GREEN .. "[SUCCESS]" .. RESET)
+        println("  [~] Starting auto-protector...       " .. GREEN .. "[SUCCESS]" .. RESET)
     else
-        print("  [~] Starting background auto-protector...          " .. RED .. "[FAIL]" .. RESET)
+        println("  [~] Starting auto-protector...       " .. RED .. "[FAIL]" .. RESET)
     end
 end
 
 local function run_optimization()
-    print("\n" .. CYAN .. "Executing System Optimization..." .. RESET)
-    print("------------------------------------------------------------------------")
+    println("\n" .. CYAN .. "Executing System Optimization..." .. RESET)
+    println("--------------------------------------------------")
     
-    -- Replaced && with ; so all commands execute independently
-    run_cmd("[~] Closing heavy background apps...", "am force-stop com.google.android.youtube ; am force-stop com.android.chrome ; am force-stop com.google.android.apps.maps")
-    run_cmd("[~] Stopping unnecessary system services...", "stop logd ; stop statsd ; stop mdnsd")
-    run_cmd("[~] Turning off device animations...", "settings put global window_animation_scale 0 ; settings put global transition_animation_scale 0 ; settings put global animator_duration_scale 0")
-    run_cmd("[~] Muting sounds and notifications...", "settings put global heads_up_notifications_enabled 0 ; settings put system haptic_feedback_enabled 0")
-    run_cmd("[~] Disabling Google Play Store...", "pm disable-user --user 0 com.android.vending")
+    run_cmd("[~] Closing background apps...", "am force-stop com.google.android.youtube ; am force-stop com.android.chrome ; am force-stop com.google.android.apps.maps")
+    run_cmd("[~] Stopping system services...", "stop logd ; stop statsd ; stop mdnsd")
+    run_cmd("[~] Turning off UI animations...", "settings put global window_animation_scale 0 ; settings put global transition_animation_scale 0 ; settings put global animator_duration_scale 0")
+    run_cmd("[~] Muting system sounds...", "settings put global heads_up_notifications_enabled 0 ; settings put system haptic_feedback_enabled 0")
+    run_cmd("[~] Disabling Play Store...", "pm disable-user --user 0 com.android.vending")
     
     start_auto_protector()
     
-    print("------------------------------------------------------------------------")
-    print(CYAN .. "Optimization complete. Press Enter to return to menu." .. RESET)
+    println("--------------------------------------------------")
+    println(CYAN .. "Optimization complete. Press Enter to return." .. RESET)
+    
+    os.execute("stty sane 2>/dev/null")
     io.read()
 end
 
 local function stop_auto_protector()
-    print("\n" .. CYAN .. "Stopping Auto-Protector..." .. RESET)
+    println("\n" .. CYAN .. "Stopping Auto-Protector..." .. RESET)
     local is_running, pid = is_service_running()
     
     if is_running then
         os.execute("su -c 'kill -9 " .. pid .. " 2>/dev/null'")
         os.remove(PID_FILE)
         os.remove(BG_SCRIPT_FILE)
-        print("  [~] Background daemon terminated...                " .. GREEN .. "[SUCCESS]" .. RESET)
+        run_cmd("[~] Terminating background daemon...", "echo 1") 
     else
-        print("  [~] Auto-Protector is already stopped.             " .. GREEN .. "[OK]" .. RESET)
+        println("  [~] Auto-Protector is already stopped. " .. GREEN .. "[OK]" .. RESET)
     end
-    print("\nPress Enter to return to menu.")
+    println("\nPress Enter to return to menu.")
+    os.execute("stty sane 2>/dev/null")
     io.read()
 end
 
 local function clear_ram_now()
-    print("\n" .. CYAN .. "Flushing System RAM..." .. RESET)
+    println("\n" .. CYAN .. "Flushing System RAM..." .. RESET)
     run_cmd("[~] Dropping memory caches...", "echo 3 > /proc/sys/vm/drop_caches")
-    print("\nPress Enter to return to menu.")
+    println("\nPress Enter to return to menu.")
+    os.execute("stty sane 2>/dev/null")
     io.read()
 end
 
@@ -180,29 +198,29 @@ while true do
     clear_screen()
     
     local running, pid = is_service_running()
-    local status_text = running and (GREEN .. "RUNNING" .. RESET) or (RED .. "STOPPED" .. RESET)
-    local pid_text = pid
+    local status_val = running and "RUNNING" or "STOPPED"
+    local pid_val = pid or "NONE"
     
-    print(CYAN .. "========================================================================" .. RESET)
-    print(WHITE .. "lana vie en rose AIO v1.0.0" .. RESET)
-    print(CYAN .. "========================================================================" .. RESET)
-    print("")
-    print(CYAN .. "+----------------------------------------------------------------------+" .. RESET)
-    print(CYAN .. "| " .. WHITE .. string.format("%-17s", "Module") .. CYAN .. " | " .. WHITE .. string.format("%-48s", "Status") .. CYAN .. " |" .. RESET)
-    print(CYAN .. "+----------------------------------------------------------------------+" .. RESET)
-    print(CYAN .. "| " .. WHITE .. string.format("%-17s", "Auto-Protector") .. CYAN .. " | [ " .. status_text .. CYAN .. string.rep(" ", 48 - 4 - 7) .. " ] |" .. RESET)
-    print(CYAN .. "| " .. WHITE .. string.format("%-17s", "Background PID") .. CYAN .. " | [ " .. WHITE .. string.format("%-44s", pid_text) .. CYAN .. " ] |" .. RESET)
-    print(CYAN .. "+----------------------------------------------------------------------+" .. RESET)
-    print("")
-    print(WHITE .. "Main Menu:" .. RESET)
-    print(CYAN .. "  (Type 'lver' anywhere in Termux to open this menu!)" .. RESET)
-    print("")
-    print("  " .. CYAN .. "[1]" .. RESET .. " - Optimize System & Start Auto-Protector")
-    print("  " .. CYAN .. "[2]" .. RESET .. " - Stop Auto-Protector")
-    print("  " .. CYAN .. "[3]" .. RESET .. " - Clear RAM Now")
-    print("")
-    print("  " .. CYAN .. "[0]" .. RESET .. " - Exit")
-    print("")
+    println(CYAN .. "==================================================" .. RESET)
+    println(WHITE .. "lana vie en rose AIO v1.0.0" .. RESET)
+    println(CYAN .. "==================================================" .. RESET)
+    println("")
+    println(CYAN .. "+------------------------------------------------+" .. RESET)
+    println(CYAN .. "| " .. WHITE .. "Module          " .. CYAN .. " | " .. WHITE .. "Status                 " .. CYAN .. "|" .. RESET)
+    println(CYAN .. "+------------------------------------------------+" .. RESET)
+    draw_table_row("Auto-Protector", status_val, running)
+    draw_table_row("Background PID", pid_val, nil)
+    println(CYAN .. "+------------------------------------------------+" .. RESET)
+    println("")
+    println(WHITE .. "Main Menu:" .. RESET)
+    println(CYAN .. "  (Type 'lver' anywhere in Termux to open this!)" .. RESET)
+    println("")
+    println("  " .. CYAN .. "[1]" .. RESET .. " - Optimize System & Start Auto-Protector")
+    println("  " .. CYAN .. "[2]" .. RESET .. " - Stop Auto-Protector")
+    println("  " .. CYAN .. "[3]" .. RESET .. " - Clear RAM Now")
+    println("")
+    println("  " .. CYAN .. "[0]" .. RESET .. " - Exit")
+    println("")
     io.write("Choose an option: ")
     
     local choice = io.read()
