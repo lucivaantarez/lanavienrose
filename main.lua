@@ -269,10 +269,26 @@ end
 local function freeze_bloatware()
     println("\n" .. CYAN .. "Freezing System Bloatware..." .. RESET)
     println("--------------------------------------------------")
+    
+    -- Phase 1: Heavy Google Apps
     run_cmd("[~] Freezing Google Chrome...", "pm disable-user --user 0 com.android.chrome")
     run_cmd("[~] Freezing YouTube...", "pm disable-user --user 0 com.google.android.youtube")
     run_cmd("[~] Freezing Google Maps...", "pm disable-user --user 0 com.google.android.apps.maps")
     run_cmd("[~] Freezing Google Photos...", "pm disable-user --user 0 com.google.android.apps.photos")
+    run_cmd("[~] Freezing Google Search...", "pm disable-user --user 0 com.google.android.googlequicksearchbox")
+    run_cmd("[~] Freezing Play Games...", "pm disable-user --user 0 com.google.android.play.games")
+    
+    -- Phase 2: Useless Android AOSP Apps
+    run_cmd("[~] Freezing Phone/SMS/Contacts...", "pm disable-user --user 0 com.android.dialer ; pm disable-user --user 0 com.android.mms ; pm disable-user --user 0 com.android.contacts")
+    run_cmd("[~] Freezing Clock/Calendar/Email/Gallery...", "pm disable-user --user 0 com.android.deskclock ; pm disable-user --user 0 com.android.calendar ; pm disable-user --user 0 com.android.email ; pm disable-user --user 0 com.android.gallery3d")
+    
+    -- Phase 3: The Deep Clean (Cloud Core Apps)
+    run_cmd("[~] Freezing Google Play Store...", "pm disable-user --user 0 com.android.vending")
+    run_cmd("[~] Freezing Redfinger App Store...", "for p in $(pm list packages | cut -d: -f2 | grep -iE 'appstore|market'); do pm disable-user --user 0 $p 2>/dev/null; done")
+    run_cmd("[~] Freezing Extended Services...", "for p in $(pm list packages | cut -d: -f2 | grep -iE 'extended|ext\\.services'); do pm disable-user --user 0 $p 2>/dev/null; done")
+    run_cmd("[~] Freezing File Manager...", "pm disable-user --user 0 com.android.documentsui ; pm disable-user --user 0 com.google.android.documentsui")
+    run_cmd("[~] Freezing Root Tools UI...", "for p in $(pm list packages | cut -d: -f2 | grep -iE 'tools'); do pm disable-user --user 0 $p 2>/dev/null; done")
+
     println("--------------------------------------------------")
     println(CYAN .. "Bloatware frozen. Press Enter to return." .. RESET)
     restore_tty(); io.read()
